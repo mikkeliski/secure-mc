@@ -1,2 +1,6 @@
 .env
+.vscode
+data/minecraft/*
+data/web/*
+backups/*
 

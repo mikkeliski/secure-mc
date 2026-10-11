@@ -1,0 +1,8 @@
+{
+    persist_config off
+}
+
+CHANGE: Server domain {
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy web:8080
+}

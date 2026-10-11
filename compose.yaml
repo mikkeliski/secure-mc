@@ -1,13 +1,112 @@
+name: secure-mc
+
 services:
-  mc:
-    image: itzg/minecraft-server:latest
-    pull_policy: daily
-    tty: true
-    stdin_open: true
+  minecraft:
+    image: itzg/minecraft-server:2026.9.2
+    restart: unless-stopped
     ports:
       - "25565:25565"
     environment:
       EULA: "TRUE"
+      TYPE: "PAPER"
+      VERSION: "LATEST"
+      MEMORY: "4G"
+      ONLINE_MODE: "TRUE"
+      ENABLE_WHITELIST: "TRUE"
+      ENFORCE_WHITELIST: "TRUE"
+      ENABLE_RCON: "TRUE"
+      RCON_PASSWORD_FILE: /run/secrets/rcon_password
+      UID: "1000"
+      GID: "1000"
     volumes:
-      # attach the relative directory 'data' to the container's /data path
-      - ./data:/data
+      - ./data/minecraft:/data
+    secrets:
+      - rcon_password
+    networks:
+      - backend
+    security-opt:
+      - no-new-privileges:true
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    user: 1000:1000
+    environment:
+      LISTEN_ADDR: ":8080"
+      RCON_ADDR: "minecraft:25575"
+      RCON_PASSWORD_FILE: /run/secrets/rcon_password
+      MC_DATA_DIR: /minecraft
+      DB_PATH: /app/data/web.db
+    volumes:
+      - ./data/web:/app/data
+      - ./data/minecraft:/minecraft:ro
+    secrets:
+      - rcon_password
+    networks:
+      - frontend
+      - backend
+    read_only: true
+    cap_drop:
+      - ALL
+    security-opt:
+      - no-new-privileges:true
+    depends_on:
+      mc:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2.11
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks:
+      - frontend
+    read-only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges: true
+
+  backup:
+    image: itzg/mc-backup:2026.9.2
+    restart: unless-stopped
+    environment:
+      RCON_HOST: minecraft
+      RCON_PASSWORD_FILE: /run/secrets/rcon_password
+      BACKUP_METHOD: restic
+      BACKUP_INTERVAL: "6h"
+      INITIAL_DELAY: "5m"
+      RESTIC_REPOSITORY: /backups
+      RESTIC_PASSWORD_FILE: /run/secrets/restic_password
+      PRUNE_RESTIC_RETENTION: "--keep-daily 7 --keep-weekly 4 --keep-monthly 6"
+    volumes:
+      - ./data/minecraft:/data:ro
+      - ./backups:/backups
+    secrets:
+      - rcon_password
+      - restic_password
+    networks:
+      - backend
+    depends_on:
+      minecraft:
+        condition: service-healthy
+
+networks:
+  backend:
+  frontend:
+
+secrets:
+  rcon_password:
+    file: ./secrets/rcon_password.tx
+  restic_password:
+    file: ./secrets/restic_password.txt
+
+volumes:
+  caddy_data:
